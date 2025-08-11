@@ -1,158 +1,267 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { fetchNotamData } from '../../services/notamService';
-import { initializeMap, plotNotamsOnMap, clearMap } from '../../utils/notamUtils';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { fetchNotamData, searchNotams, fetchDetailedNotam } from '../../services/notamService';
+import { 
+  initializeMap, 
+  plotNotamsOnMap, 
+  clearMap, 
+  highlightNotamOnMap,
+  drawNotamGeometry
+} from '../../utils/notamUtils';
+import NotamDetail from './NotamDetail';
+import NotamFilters from './NotamFilters';
+import NotamList from './NotamList';
+import NotamSearch from './NotamSearch';
+import NotamStats from './NotamStats';
+import LoadingIndicator from '../common/LoadingIndicator';
+import ErrorMessage from '../common/ErrorMessage';
+import { useAuth } from '../../contexts/AuthContext';
 import './NotamDashboard.css';
 
 const NotamDashboard = () => {
   const mapContainerRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const { token, refreshToken } = useAuth();
+  
   const [notamData, setNotamData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [selectedNotam, setSelectedNotam] = useState(null);
+  const [detailedNotam, setDetailedNotam] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [stats, setStats] = useState({
+    total: 0,
+    byType: {},
+    byRegion: {},
+    activeToday: 0
+  });
+  
   const [filters, setFilters] = useState({
     region: 'all',
     type: 'all',
-    dateRange: 'current'
+    dateRange: 'current',
+    minAltitude: 0,
+    maxAltitude: 60000,
+    searchTerm: ''
   });
   
   // Initialize map when component mounts
   useEffect(() => {
     if (mapContainerRef.current) {
       const map = initializeMap(mapContainerRef.current);
+      mapInstanceRef.current = map;
       
-      // Store map reference for cleanup
       return () => {
         clearMap(map);
       };
     }
   }, []);
   
-  // Fetch NOTAM data and update when filters change
-  useEffect(() => {
-    const loadNotamData = async () => {
-      setLoading(true);
-      try {
-        const data = await fetchNotamData(filters);
-        setNotamData(data);
-        setError(null);
+  // Fetch NOTAM data when filters change or when token refreshes
+  const loadNotams = useCallback(async () => {
+    if (!token) return;
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const data = await fetchNotamData(filters, token);
+      setNotamData(data);
+      
+      // Calculate statistics
+      const statData = {
+        total: data.length,
+        byType: {},
+        byRegion: {},
+        activeToday: 0
+      };
+      
+      const today = new Date();
+      
+      data.forEach(notam => {
+        // Count by type
+        statData.byType[notam.type] = (statData.byType[notam.type] || 0) + 1;
         
-        // Plot NOTAMs on the map
-        if (mapContainerRef.current) {
-          plotNotamsOnMap(mapContainerRef.current, data);
+        // Count by region
+        const region = notam.location.substring(0, 1);
+        statData.byRegion[region] = (statData.byRegion[region] || 0) + 1;
+        
+        // Count active today
+        const effectiveDate = new Date(notam.effectiveDate);
+        if (effectiveDate <= today && (!notam.expiryDate || new Date(notam.expiryDate) >= today)) {
+          statData.activeToday++;
+        }
+      });
+      
+      setStats(statData);
+      
+      // Plot NOTAMs on the map
+      if (mapInstanceRef.current) {
+        plotNotamsOnMap(mapInstanceRef.current, data);
+      }
+    } catch (err) {
+      console.error('Error fetching NOTAM data:', err);
+      setError('Failed to load NOTAM data. Please try again later.');
+      
+      // Handle authentication errors
+      if (err.status === 401 || err.status === 403) {
+        // This will trigger a token refresh in your auth context
+        refreshToken();
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [filters, token, refreshToken]);
+  
+  useEffect(() => {
+    loadNotams();
+  }, [loadNotams]);
+  
+  // Load detailed NOTAM when one is selected
+  useEffect(() => {
+    if (!selectedNotam || !token) return;
+    
+    const loadDetailedNotam = async () => {
+      setDetailLoading(true);
+      
+      try {
+        const detail = await fetchDetailedNotam(selectedNotam.id, token);
+        setDetailedNotam(detail);
+        
+        // Highlight the selected NOTAM on the map
+        if (mapInstanceRef.current) {
+          highlightNotamOnMap(mapInstanceRef.current, selectedNotam.id);
+          
+          // Draw NOTAM geometry if available
+          if (detail.geometry) {
+            drawNotamGeometry(mapInstanceRef.current, detail.geometry);
+          }
         }
       } catch (err) {
-        console.error('Error fetching NOTAM data:', err);
-        setError('Failed to load NOTAM data. Please try again later.');
+        console.error('Error fetching NOTAM details:', err);
+        setError('Failed to load NOTAM details. Please try again later.');
       } finally {
-        setLoading(false);
+        setDetailLoading(false);
       }
     };
     
-    loadNotamData();
-  }, [filters]);
+    loadDetailedNotam();
+  }, [selectedNotam, token]);
   
+  // Handle filter changes
   const handleFilterChange = (filterType, value) => {
     setFilters(prev => ({
       ...prev,
       [filterType]: value
     }));
+    
+    // Clear selected NOTAM when filters change
+    setSelectedNotam(null);
+    setDetailedNotam(null);
+  };
+  
+  // Handle search
+  const handleSearch = async (searchTerm) => {
+    if (searchTerm.trim() === filters.searchTerm) return;
+    
+    handleFilterChange('searchTerm', searchTerm);
+    
+    if (searchTerm.trim().length > 2) {
+      setLoading(true);
+      try {
+        const results = await searchNotams(searchTerm, token);
+        setNotamData(results);
+        
+        // Update map with search results
+        if (mapInstanceRef.current) {
+          plotNotamsOnMap(mapInstanceRef.current, results);
+        }
+      } catch (err) {
+        console.error('Error searching NOTAMs:', err);
+        setError('Search failed. Please try again later.');
+      } finally {
+        setLoading(false);
+      }
+    } else if (searchTerm.trim().length === 0) {
+      // Reset to normal filtered view if search is cleared
+      loadNotams();
+    }
+  };
+  
+  // Select a NOTAM for detailed view
+  const selectNotam = (notam) => {
+    setSelectedNotam(notam);
+  };
+  
+  // Close detailed view
+  const closeDetail = () => {
+    setSelectedNotam(null);
+    setDetailedNotam(null);
+    
+    // Reset map highlights
+    if (mapInstanceRef.current) {
+      // Remove geometry overlays
+      mapInstanceRef.current.eachLayer(layer => {
+        if (layer.options && layer.options.isNotamGeometry) {
+          mapInstanceRef.current.removeLayer(layer);
+        }
+      });
+      
+      // Replot all NOTAMs without highlights
+      plotNotamsOnMap(mapInstanceRef.current, notamData);
+    }
+  };
+  
+  // Refresh data
+  const handleRefresh = () => {
+    loadNotams();
   };
   
   return (
     <div className="notam-dashboard">
-      <div className="notam-controls">
+      <div className="notam-dashboard-header">
         <h2>NOTAM Dashboard</h2>
-        
-        <div className="filter-container">
-          <div className="filter-group">
-            <label htmlFor="region-filter">Region:</label>
-            <select 
-              id="region-filter" 
-              value={filters.region}
-              onChange={(e) => handleFilterChange('region', e.target.value)}
-            >
-              <option value="all">All Regions</option>
-              <option value="north-america">North America</option>
-              <option value="europe">Europe</option>
-              <option value="asia">Asia</option>
-              <option value="africa">Africa</option>
-              <option value="oceania">Oceania</option>
-              <option value="south-america">South America</option>
-            </select>
-          </div>
-          
-          <div className="filter-group">
-            <label htmlFor="type-filter">NOTAM Type:</label>
-            <select 
-              id="type-filter" 
-              value={filters.type}
-              onChange={(e) => handleFilterChange('type', e.target.value)}
-            >
-              <option value="all">All Types</option>
-              <option value="obstacle">Obstacle</option>
-              <option value="airspace">Airspace</option>
-              <option value="procedure">Procedure</option>
-              <option value="navaid">Navaid</option>
-              <option value="airport">Airport</option>
-            </select>
-          </div>
-          
-          <div className="filter-group">
-            <label htmlFor="date-filter">Date Range:</label>
-            <select 
-              id="date-filter" 
-              value={filters.dateRange}
-              onChange={(e) => handleFilterChange('dateRange', e.target.value)}
-            >
-              <option value="current">Current</option>
-              <option value="today">Today</option>
-              <option value="week">This Week</option>
-              <option value="month">This Month</option>
-            </select>
-          </div>
+        <div className="notam-actions">
+          <NotamSearch onSearch={handleSearch} />
+          <button className="refresh-button" onClick={handleRefresh}>
+            Refresh Data
+          </button>
         </div>
       </div>
       
-      {error && <div className="error-message">{error}</div>}
-      
-      <div className="map-container" ref={mapContainerRef}></div>
-      
-      <div className="notam-list">
-        <h3>NOTAM List {loading && <span className="loading-indicator">Loading...</span>}</h3>
-        {notamData.length === 0 && !loading ? (
-          <p>No NOTAMs found matching your criteria.</p>
-        ) : (
-          <table className="notam-table">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Location</th>
-                <th>Type</th>
-                <th>Effective Date</th>
-                <th>Description</th>
-              </tr>
-            </thead>
-            <tbody>
-              {notamData.map(notam => (
-                <tr key={notam.id} onClick={() => highlightNotam(notam.id)}>
-                  <td>{notam.id}</td>
-                  <td>{notam.location}</td>
-                  <td>{notam.type}</td>
-                  <td>{notam.effectiveDate}</td>
-                  <td className="notam-description">{notam.description}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <div className="notam-dashboard-content">
+        <div className="notam-sidebar">
+          <NotamFilters 
+            filters={filters} 
+            onFilterChange={handleFilterChange} 
+          />
+          <NotamStats stats={stats} />
+        </div>
+        
+        <div className="notam-main-content">
+          {error && <ErrorMessage message={error} onDismiss={() => setError(null)} />}
+          
+          <div className="map-container" ref={mapContainerRef}>
+            {loading && <LoadingIndicator />}
+          </div>
+          
+          <NotamList 
+            notams={notamData} 
+            loading={loading} 
+            selectedId={selectedNotam?.id} 
+            onSelectNotam={selectNotam} 
+          />
+        </div>
+        
+        {selectedNotam && (
+          <NotamDetail 
+            notam={detailedNotam || selectedNotam} 
+            loading={detailLoading} 
+            onClose={closeDetail} 
+          />
         )}
       </div>
     </div>
   );
-};
-
-// Function to highlight a selected NOTAM on the map
-const highlightNotam = (notamId) => {
-  // Implementation would interact with the map to highlight the selected NOTAM
-  console.log(`Highlighting NOTAM: ${notamId}`);
 };
 
 export default NotamDashboard;
