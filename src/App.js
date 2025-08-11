@@ -5,7 +5,6 @@ import Footer from './components/Footer';
 import FilterPanel from './components/FilterPanel';
 import FlightTile from './components/FlightTile';
 import WeatherTile from './components/WeatherTile';
-import NotamDashboard from './components/NotamDashboard';
 import { loadFlights } from './utils/flightUtils';
 
 function App() {
@@ -276,8 +275,8 @@ function App() {
           Weather Monitor
         </button>
         <button 
-          onClick={() => setCurrentPage('notam')} 
-          className={`px-4 py-2 rounded text-white ${currentPage === 'notam' ? 'bg-cyan-700' : 'bg-cyan-600 hover:bg-cyan-700'}`}
+          onClick={() => window.open('https://vvkpops-notamoriginal.up.railway.app/', '_blank')} 
+          className="bg-cyan-700 px-4 py-2 rounded text-white hover:bg-cyan-900"
         >
           NOTAM Dashboard
         </button>
@@ -457,13 +456,6 @@ function App() {
               />
             ))}
           </div>
-        </div>
-      )}
-      
-      {/* NOTAM DASHBOARD PAGE */}
-      {currentPage === 'notam' && (
-        <div id="notamPage" className="w-full px-6">
-          <NotamDashboard />
         </div>
       )}
       
