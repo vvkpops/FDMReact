@@ -1,176 +1,176 @@
-import React, { useState, useEffect } from 'react';
-import { shortTime, calculateProgress } from '../utils/flightUtils';
-import { fetchTAF, fetchMETAR, highlightTAFAtETA } from '../utils/weatherUtils';
+import React from 'react';
+import { parseVisibility, checkMinima } from '../utils/weatherUtils';
 
 const FlightTile = ({ 
   flight, 
   dashboardMinima, 
   globalDashboardMinima, 
   setDashboardMinima, 
-  resetDashboardMinima,
-  toggleAlt,
-  setAlternate,
-  addWeatherICAOFromTile
+  resetDashboardMinima, 
+  toggleAlt, 
+  setAlternate, 
+  addWeatherICAOFromTile 
 }) => {
-  const [tafRaw, setTafRaw] = useState("");
-  const [metarRaw, setMetarRaw] = useState("");
-  const [tafHtml, setTafHtml] = useState("");
-  const [below, setBelow] = useState(false);
-  const [loading, setLoading] = useState(true);
+  // Get current minima for this flight
+  const currentMinima = dashboardMinima[flight.callsign] || globalDashboardMinima;
+  
+  // Determine which airport to check based on toggle
+  const targetIcao = toggleAlt[flight.callsign] ? flight.alticao : flight.arricao;
+  
+  // Get weather data for the target airport
+  // This should come from your weather data source
+  const weatherData = flight.weather?.[targetIcao] || {};
+  
+  // Check minima compliance
+  const minimaCheck = checkMinima(
+    {
+      ceiling: weatherData.ceiling,
+      visibility: weatherData.visibility
+    },
+    currentMinima
+  );
 
-  const useAlt = toggleAlt[flight.callsign] === true;
-  const icao = useAlt ? flight.alticao : flight.arricao;
-  const min = dashboardMinima[flight.callsign] || globalDashboardMinima;
-  const usingDefault = !dashboardMinima[flight.callsign];
+  // Calculate flight progress
+  const now = new Date();
+  const start = new Date(flight.std);
+  const end = new Date(flight.eta);
+  const totalDuration = end - start;
+  const elapsed = Math.max(0, now - start);
+  const progress = Math.min(100, Math.max(0, (elapsed / totalDuration) * 100));
 
-  useEffect(() => {
-    const fetchData = async () => {
-      if (icao) {
-        setLoading(true);
-        const [taf, metar] = await Promise.all([
-          fetchTAF(icao), 
-          fetchMETAR(icao)
-        ]);
-        
-        setTafRaw(taf);
-        setMetarRaw(metar);
-        
-        if (taf) {
-          const result = highlightTAFAtETA(taf, min.ceiling, min.vis, flight.eta);
-          setTafHtml(result.html);
-          setBelow(result.below);
-        }
-        
-        setLoading(false);
-      }
-    };
-    
-    fetchData();
-    
-    // Refresh every 5 minutes
-    const intervalId = setInterval(fetchData, 300000);
-    
-    return () => clearInterval(intervalId);
-  }, [icao, flight.eta, min.ceiling, min.vis]);
+  // Determine flight status
+  const isActive = start <= now && now <= end;
+  const isCompleted = now > end;
+  const isScheduled = start > now;
 
-  const getBorderClass = () => {
-    if (loading) return "border-gray-700";
-    if (tafRaw) {
-      return below ? "border-red-500" : "border-green-500";
-    }
-    return "border-gray-700";
-  };
-
-  const getStatus = () => {
-    if (!tafRaw) return "";
-    
-    return below 
-      ? <span className="text-red-400 font-bold">🚨 Below minima</span>
-      : <span className="text-green-400 font-bold">✅ Above minima</span>;
-  };
+  const tileClass = `flight-tile ${
+    !minimaCheck.overallMet ? 'border-red-500 bg-red-900/20' : ''
+  }`;
 
   return (
-    <div 
-      id={`tile-${flight.callsign}`} 
-      className={`flight-tile bg-gray-800 rounded-xl shadow-md p-4 hover:scale-105 transition-transform duration-300 ${getBorderClass()}`}
-    >
-      <div className="flight-title text-2xl font-bold text-center">{flight.callsign}</div>
+    <div className={tileClass}>
+      <div className="flight-title text-center mb-2">{flight.callsign}</div>
       
-      <div className="flex justify-between items-center text-sm mb-2">
-        <span>Weather: {useAlt ? flight.alticao : flight.arricao}</span>
+      {/* Flight Times */}
+      <div className="flex justify-around text-sm mb-2">
+        <div>STD: {flight.std.slice(11, 16)}Z</div>
+        <div>STA: {flight.sta.slice(11, 16)}Z</div>
+        <div>ETA: {flight.eta.slice(11, 16)}Z</div>
+      </div>
+
+      {/* Progress Bar */}
+      <div className="w-full bg-gray-700 rounded h-2 mb-2">
+        <div 
+          className={`h-2 rounded transition-all duration-1000 ${
+            isCompleted ? 'bg-green-500' : isActive ? 'bg-blue-500' : 'bg-gray-500'
+          }`}
+          style={{ width: `${progress}%` }}
+        ></div>
+      </div>
+
+      {/* Route Information */}
+      <div className="flex justify-between text-xs mb-2 font-bold">
+        <div>{flight.depicao} (DEP)</div>
+        <div>{flight.arricao} (ARR)</div>
+      </div>
+      <div className="text-xs mb-3 font-bold">Alternate: {flight.alticao}</div>
+
+      {/* Airport Toggle */}
+      <div className="flex justify-center mb-2">
         <div className="inline-flex bg-gray-700 rounded-full p-1">
           <span 
             onClick={() => setAlternate(flight.callsign, false)} 
-            className={`cursor-pointer px-2 py-1 rounded-full font-medium ${!useAlt ? 'bg-purple-600 text-white' : 'text-gray-300'}`}
+            className={`cursor-pointer px-2 py-1 rounded-full text-xs font-medium ${
+              !toggleAlt[flight.callsign] ? 'bg-purple-600 text-white' : 'text-gray-300'
+            }`}
           >
-            Destination
+            {flight.arricao}
           </span>
           <span 
             onClick={() => setAlternate(flight.callsign, true)} 
-            className={`cursor-pointer px-2 py-1 rounded-full font-medium ${useAlt ? 'bg-purple-600 text-white' : 'text-gray-300'}`}
+            className={`cursor-pointer px-2 py-1 rounded-full text-xs font-medium ${
+              toggleAlt[flight.callsign] ? 'bg-purple-600 text-white' : 'text-gray-300'
+            }`}
           >
-            Alternate
+            {flight.alticao}
           </span>
         </div>
       </div>
-      
-      <div className="text-lg flex justify-around mt-2 mb-2">
-        <div>STD: {shortTime(flight.std)}</div>
-        <div>STA: {shortTime(flight.sta)}</div>
-        <div>ETA: {shortTime(flight.eta)}</div>
-      </div>
-      
-      <div className="w-full bg-gray-700 rounded h-2 mt-1">
-        <div 
-          className="bg-green-500 h-2 rounded" 
-          style={{width: `${calculateProgress(flight.std, flight.eta)}%`}}
-        ></div>
-      </div>
-      
-      <div className="flex justify-between text-sm mt-1 font-bold">
-        <div>
-          <span 
-            className='cursor-pointer text-blue-400 hover:underline' 
-            onClick={() => addWeatherICAOFromTile(flight.depicao)}
-          >
-            {flight.depicao}
-          </span> (STD)
-        </div>
-        <div>
-          <span 
-            className='cursor-pointer text-blue-400 hover:underline' 
-            onClick={() => addWeatherICAOFromTile(flight.arricao)}
-          >
-            {flight.arricao}
-          </span> (ETA)
-        </div>
-      </div>
-      
-      <div className="flex gap-3 items-center mt-2 text-xs">
-        <label className={usingDefault ? 'minima-default' : ''}>
-          Ceil: 
-          <input 
-            type="number" 
-            value={min.ceiling}
-            className="bg-gray-700 p-1 rounded w-20 text-center"
-            onChange={(e) => setDashboardMinima(flight.callsign, 'ceiling', e.target.value)}
-          />
-        </label>
-        <label className={usingDefault ? 'minima-default' : ''}>
-          Vis: 
-          <input 
-            type="number" 
-            step="0.1" 
-            value={min.vis}
-            className="bg-gray-700 p-1 rounded w-20 text-center"
-            onChange={(e) => setDashboardMinima(flight.callsign, 'vis', e.target.value)}
-          />
-        </label>
-        {usingDefault ? 
-          <span className="minima-default">(default)</span> : 
+
+      {/* Weather Information */}
+      <div className="mb-3">
+        <div className="text-sm font-semibold mb-1">
+          Weather ({targetIcao}):
           <button 
-            className="minima-reset-btn" 
-            onClick={() => resetDashboardMinima(flight.callsign)}
+            onClick={() => addWeatherICAOFromTile(targetIcao)}
+            className="ml-2 text-blue-400 hover:text-blue-300"
+            title="Add to Weather Monitor"
           >
-            reset
+            📊
           </button>
-        }
+        </div>
+        
+        {weatherData && Object.keys(weatherData).length > 0 ? (
+          <div className="text-xs space-y-1">
+            <div className={`flex justify-between ${!minimaCheck.ceilingMet ? 'text-red-400' : 'text-green-400'}`}>
+              <span>Ceiling:</span>
+              <span>{weatherData.ceiling || 'N/A'}</span>
+            </div>
+            <div className={`flex justify-between ${!minimaCheck.visibilityMet ? 'text-red-400' : 'text-green-400'}`}>
+              <span>Visibility:</span>
+              <span>{weatherData.visibility || 'N/A'} SM</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Wind:</span>
+              <span>{weatherData.wind || 'N/A'}</span>
+            </div>
+          </div>
+        ) : (
+          <div className="text-xs text-gray-400">No weather data available</div>
+        )}
       </div>
-      
-      {metarRaw && (
-        <div className="mt-2 text-xs">
-          <strong>METAR:</strong> {metarRaw}
+
+      {/* Minima Section */}
+      <div className="mb-2">
+        <div className="text-sm font-semibold mb-1">Minima:</div>
+        <div className="flex gap-2 text-xs">
+          <div className="flex-1">
+            <label className="block text-xs">Ceiling:</label>
+            <input
+              type="number"
+              value={currentMinima.ceiling}
+              onChange={(e) => setDashboardMinima(flight.callsign, 'ceiling', e.target.value)}
+              className="w-full bg-gray-700 p-1 rounded text-center text-xs"
+            />
+          </div>
+          <div className="flex-1">
+            <label className="block text-xs">Visibility:</label>
+            <input
+              type="number"
+              step="0.1"
+              value={currentMinima.vis}
+              onChange={(e) => setDashboardMinima(flight.callsign, 'vis', e.target.value)}
+              className="w-full bg-gray-700 p-1 rounded text-center text-xs"
+            />
+          </div>
         </div>
-      )}
-      
-      {tafRaw && (
-        <div className="mt-2 text-xs taf-block">
-          <strong>TAF:</strong>
-          <div dangerouslySetInnerHTML={{ __html: tafHtml }}></div>
-        </div>
-      )}
-      
-      <div className="mt-2 text-sm">{getStatus()}</div>
+        
+        {dashboardMinima[flight.callsign] && (
+          <button 
+            onClick={() => resetDashboardMinima(flight.callsign)}
+            className="minima-reset-btn"
+          >
+            Reset to Global
+          </button>
+        )}
+      </div>
+
+      {/* Status Indicator */}
+      <div className={`text-center text-sm font-bold ${
+        minimaCheck.overallMet ? 'text-green-400' : 'text-red-400'
+      }`}>
+        {minimaCheck.overallMet ? '✅ Above Minima' : '❌ Below Minima'}
+      </div>
     </div>
   );
 };
