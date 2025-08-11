@@ -1,94 +1,71 @@
+/* NOTAM specific styles */
 .notam-dashboard {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
   width: 100%;
-  font-family: Arial, sans-serif;
-  color: #333;
-  background-color: #f8f9fa;
 }
 
-.notam-dashboard-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 15px 20px;
-  background-color: #fff;
-  border-bottom: 1px solid #e0e0e0;
+/* Type badges */
+.type-badge {
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: capitalize;
 }
 
-.notam-dashboard-header h2 {
-  margin: 0;
-  color: #2c3e50;
-  font-size: 1.4rem;
+.type-obstacle {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
 }
 
-.notam-actions {
-  display: flex;
-  align-items: center;
-  gap: 15px;
+.type-airspace {
+  background-color: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
 }
 
-.refresh-button {
-  background-color: #3498db;
+.type-procedure {
+  background-color: rgba(59, 130, 246, 0.2);
+  color: #3b82f6;
+}
+
+.type-navaid {
+  background-color: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+}
+
+.type-airport {
+  background-color: rgba(139, 92, 246, 0.2);
+  color: #8b5cf6;
+}
+
+/* Map marker styles */
+.notam-marker div {
+  border-radius: 50%;
+  width: 100%;
+  height: 100%;
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+}
+
+/* Popup styles */
+.notam-popup .view-details-btn {
+  background: #0891b2;
   color: white;
   border: none;
+  padding: 4px 8px;
   border-radius: 4px;
-  padding: 8px 15px;
-  font-size: 0.9rem;
   cursor: pointer;
-  transition: background-color 0.2s;
+  font-size: 12px;
 }
 
-.refresh-button:hover {
-  background-color: #2980b9;
-}
-
-.notam-dashboard-content {
-  display: flex;
-  flex: 1;
-  height: calc(100% - 60px);
-  overflow: hidden;
-  position: relative;
-}
-
-.notam-sidebar {
-  width: 300px;
-  background-color: #fff;
-  border-right: 1px solid #e0e0e0;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-}
-
-.notam-main-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.map-container {
-  flex: 1;
-  position: relative;
-  min-height: 400px;
-  background-color: #e9e9e9;
+.notam-popup .view-details-btn:hover {
+  background: #0e7490;
 }
 
 /* Responsive adjustments */
 @media (max-width: 1024px) {
-  .notam-dashboard-content {
+  .notam-content {
     flex-direction: column;
   }
   
   .notam-sidebar {
-    width: 100%;
-    height: auto;
-    border-right: none;
-    border-bottom: 1px solid #e0e0e0;
-  }
-  
-  .notam-main-content {
-    height: 100%;
+    width: 100% !important;
   }
 }
