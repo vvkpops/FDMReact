@@ -4,7 +4,7 @@ import './Dashboard.css';
 
 const Dashboard = () => {
   const [activeTab, setActiveTab] = useState('main');
-  const currentDate = new Date().toISOString().split('T')[0];
+  const currentDate = '2025-08-11';
   
   return (
     <div className="dashboard-container">
@@ -116,7 +116,7 @@ const Dashboard = () => {
       </main>
       
       <footer className="dashboard-footer">
-        <p>&copy; 2025 Flight Data Management System | Last updated: 2025-08-11 00:57:07 UTC</p>
+        <p>&copy; 2025 Flight Data Management System | Last updated: 2025-08-11 01:04:23 UTC</p>
       </footer>
     </div>
   );
