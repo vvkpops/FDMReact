@@ -1,302 +1,221 @@
 /**
- * Utilities for NOTAM map functionality
- * Migrated from NotamOriginal project
+ * NOTAM utilities for API calls and data processing
  */
 
-// Map instance reference
-let markers = [];
-let activeHighlight = null;
-let geometryLayers = [];
-
-/**
- * Initialize the map in the specified container
- * @param {HTMLElement} container - The DOM element to initialize the map in
- * @returns {Object} The map instance
- */
-export const initializeMap = (container) => {
-  // Using Leaflet for mapping
-  if (typeof L !== 'undefined') {
-    // Create a new map instance
-    const map = L.map(container, {
-      center: [20, 0],
-      zoom: 2,
-      minZoom: 2,
-      maxZoom: 18,
-      zoomControl: true
-    });
-    
-    // Add tile layer (OpenStreetMap)
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-    }).addTo(map);
-    
-    // Add scale control
-    L.control.scale({
-      imperial: true,
-      metric: true,
-      position: 'bottomleft'
-    }).addTo(map);
-    
-    return map;
-  } else {
-    // Fallback if Leaflet is not available
-    console.error('Leaflet library not loaded. Map functionality will not work.');
-    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;background:#e8e8e8;"><p>Map unavailable - Leaflet library not loaded</p></div>';
-    
-    // Return a minimal mock implementation
-    return {
-      setView: () => {},
-      addLayer: () => {},
-      removeLayer: () => {},
-      eachLayer: () => {},
-      remove: () => { container.innerHTML = ''; }
-    };
+// Sample data for development/demo
+const SAMPLE_NOTAMS = [
+  {
+    id: 'A1234/23',
+    location: 'KJFK',
+    coordinates: { lat: 40.6413, lng: -73.7781 },
+    type: 'airport',
+    effectiveDate: '2025-08-10T00:00:00Z',
+    expiryDate: '2025-09-10T00:00:00Z',
+    description: 'Runway 13L/31R closed for maintenance. All aircraft must use alternate runways until maintenance is complete. Expected reopening September 10.'
+  },
+  {
+    id: 'B5678/23',
+    location: 'EGLL',
+    coordinates: { lat: 51.4700, lng: -0.4543 },
+    type: 'obstacle',
+    effectiveDate: '2025-08-09T00:00:00Z',
+    expiryDate: '2025-08-30T00:00:00Z',
+    description: 'Temporary crane erected 2NM east of airport, height 300ft AGL. Crane will be in operation during daylight hours only. Night operations unaffected.',
+    altitude: 'Surface to 300ft AGL',
+    radius: '2NM from position'
+  },
+  {
+    id: 'C9012/23',
+    location: 'EHAM',
+    coordinates: { lat: 52.3105, lng: 4.7683 },
+    type: 'navaid',
+    effectiveDate: '2025-08-11T00:00:00Z',
+    expiryDate: '2025-08-18T00:00:00Z',
+    description: 'AMS VOR/DME unserviceable due to maintenance. Pilots should use alternative navigation means. RNAV approach procedures unaffected.'
+  },
+  {
+    id: 'D3456/23',
+    location: 'RJTT',
+    coordinates: { lat: 35.5494, lng: 139.7798 },
+    type: 'airspace',
+    effectiveDate: '2025-08-12T00:00:00Z',
+    expiryDate: null,
+    description: 'Temporary restricted area established for military exercises within 5NM radius of RJTT. All traffic must contact ATC prior to entry. Active from 0800-1600 local time daily.',
+    remarks: 'Military aircraft will be operating at various altitudes. Expect radio checks on approach frequency.'
+  },
+  {
+    id: 'E7890/23',
+    location: 'YSSY',
+    coordinates: { lat: -33.9500, lng: 151.1819 },
+    type: 'procedure',
+    effectiveDate: '2025-08-10T00:00:00Z',
+    expiryDate: '2025-09-15T00:00:00Z',
+    description: 'ILS approach procedure runway 16R temporarily unavailable due to equipment calibration. LPV and RNAV approaches remain available.',
+    issuedBy: 'Sydney ATC'
+  },
+  {
+    id: 'F2468/23',
+    location: 'CYYZ',
+    coordinates: { lat: 43.6777, lng: -79.6248 },
+    type: 'airport',
+    effectiveDate: '2025-08-15T00:00:00Z',
+    expiryDate: '2025-08-16T00:00:00Z',
+    description: 'Terminal 1 check-in counters 1-12 closed for maintenance. Passengers should proceed to counters 14-36 for check-in.'
+  },
+  {
+    id: 'G1357/23',
+    location: 'KORD',
+    coordinates: { lat: 41.9742, lng: -87.9073 },
+    type: 'obstacle',
+    effectiveDate: '2025-08-11T00:00:00Z',
+    expiryDate: '2025-10-30T00:00:00Z',
+    description: 'Construction cranes up to 250ft AGL 1.5NM south of threshold runway 10L. Cranes marked and lighted.',
+    altitude: 'Surface to 250ft AGL'
+  },
+  {
+    id: 'H8642/23',
+    location: 'EDDF',
+    coordinates: { lat: 50.0379, lng: 8.5622 },
+    type: 'navaid',
+    effectiveDate: '2025-08-20T00:00:00Z',
+    expiryDate: '2025-08-21T00:00:00Z',
+    description: 'FRA DME temporarily out of service for maintenance 0600-1800 local time.'
+  },
+  {
+    id: 'J4680/23',
+    location: 'KLAX',
+    coordinates: { lat: 33.9416, lng: -118.4085 },
+    type: 'airspace',
+    effectiveDate: '2025-09-01T00:00:00Z',
+    expiryDate: '2025-09-05T00:00:00Z',
+    description: 'Temporary flight restrictions in effect due to VIP movement. 3NM radius from KLAX below 5000ft AGL.',
+    altitude: 'Surface to 5000ft AGL',
+    radius: '3NM from airport reference point'
+  },
+  {
+    id: 'K7531/23',
+    location: 'LIRF',
+    coordinates: { lat: 41.8003, lng: 12.2389 },
+    type: 'procedure',
+    effectiveDate: '2025-08-25T00:00:00Z',
+    expiryDate: '2025-08-26T00:00:00Z',
+    description: 'Instrument approach procedures for runway 16L/34R not available due to calibration. Visual approaches only.'
   }
-};
+];
 
 /**
- * Plot NOTAM data on the map
- * @param {Object} map - The map instance
- * @param {Array} notams - Array of NOTAM objects to display
+ * Fetch NOTAMs based on filter criteria
+ * @param {Object} filters - Filter options
+ * @returns {Promise<Array>} - Filtered NOTAM data
  */
-export const plotNotamsOnMap = (map, notams) => {
-  clearMarkers(map);
+export const fetchNotams = async (filters) => {
+  // In a real implementation, this would call your API
+  // For this integration, we'll use sample data
   
-  // Implementation for Leaflet
-  if (typeof L !== 'undefined') {
-    // Create marker clusters if available
-    const markerCluster = L.markerClusterGroup ? 
-      L.markerClusterGroup({
-        disableClusteringAtZoom: 10,
-        spiderfyOnMaxZoom: true,
-        showCoverageOnHover: false
-      }) : 
-      { addLayer: (layer) => layer.addTo(map), addTo: () => {} };
+  // Simulate network delay
+  await new Promise(resolve => setTimeout(resolve, 800));
+  
+  try {
+    // Apply filters to the sample data
+    let filteredData = [...SAMPLE_NOTAMS];
     
-    notams.forEach(notam => {
-      if (notam.coordinates) {
-        const { lat, lng } = notam.coordinates;
-        
-        // Create icon based on NOTAM type
-        const icon = createNotamIcon(notam.type);
-        
-        const marker = L.marker([lat, lng], { icon }).bindPopup(
-          createNotamPopupContent(notam)
+    // Filter by search term
+    if (filters.searchTerm) {
+      const searchLower = filters.searchTerm.toLowerCase();
+      filteredData = filteredData.filter(notam =>
+        notam.id.toLowerCase().includes(searchLower) ||
+        notam.location.toLowerCase().includes(searchLower) ||
+        notam.description.toLowerCase().includes(searchLower)
+      );
+    }
+    
+    // Filter by region
+    if (filters.region !== 'all') {
+      const regionMapping = {
+        'north-america': ['K', 'C', 'M', 'T'],
+        'europe': ['E', 'L'],
+        'asia': ['R', 'V', 'Z', 'O'],
+        'oceania': ['Y', 'N'],
+        'africa': ['F', 'D', 'H'],
+        'south-america': ['S']
+      };
+      
+      const prefixes = regionMapping[filters.region] || [];
+      if (prefixes.length > 0) {
+        filteredData = filteredData.filter(notam => 
+          prefixes.some(prefix => notam.location.startsWith(prefix))
         );
-        
-        // Store reference to the notam in the marker
-        marker.notamId = notam.id;
-        
-        // Add to cluster or directly to map
-        markerCluster.addLayer(marker);
-        markers.push(marker);
       }
-    });
-    
-    // Add the cluster group to the map if using clustering
-    markerCluster.addTo(map);
-    
-    // If we have markers, fit the map to show all of them
-    if (markers.length > 0) {
-      const group = L.featureGroup(markers);
-      map.fitBounds(group.getBounds(), { padding: [50, 50] });
     }
-  }
-};
-
-/**
- * Create a custom icon based on NOTAM type
- * @param {string} type - The NOTAM type
- * @returns {Object} - A Leaflet icon
- */
-const createNotamIcon = (type) => {
-  if (typeof L === 'undefined') return null;
-  
-  // Define colors for different NOTAM types
-  const colors = {
-    obstacle: '#c62828',
-    airspace: '#2e7d32',
-    procedure: '#1565c0',
-    navaid: '#f57f17',
-    airport: '#7b1fa2',
-    default: '#333333'
-  };
-  
-  const color = colors[type] || colors.default;
-  
-  // Create a custom divIcon
-  return L.divIcon({
-    className: `notam-marker notam-marker-${type}`,
-    html: `<div style="background-color:${color}"></div>`,
-    iconSize: [12, 12],
-    iconAnchor: [6, 6]
-  });
-};
-
-/**
- * Create HTML content for a NOTAM popup
- * @param {Object} notam - The NOTAM object
- * @returns {string} - HTML content for the popup
- */
-const createNotamPopupContent = (notam) => {
-  const effectiveDate = new Date(notam.effectiveDate).toLocaleString();
-  const expiryDate = notam.expiryDate 
-    ? new Date(notam.expiryDate).toLocaleString()
-    : 'Permanent';
-  
-  return `
-    <div class="notam-popup">
-      <h4>${notam.id}</h4>
-      <p><strong>Location:</strong> ${notam.location}</p>
-      <p><strong>Type:</strong> <span class="notam-type type-${notam.type}">${notam.type}</span></p>
-      <p><strong>Effective:</strong> ${effectiveDate}</p>
-      <p><strong>Expires:</strong> ${expiryDate}</p>
-      <p>${notam.description}</p>
-      <button class="view-details-btn" onclick="window.viewNotamDetails('${notam.id}')">
-        View Details
-      </button>
-    </div>
-  `;
-};
-
-/**
- * Highlight a specific NOTAM on the map
- * @param {Object} map - The map instance
- * @param {string} notamId - The ID of the NOTAM to highlight
- */
-export const highlightNotamOnMap = (map, notamId) => {
-  // Clear any existing highlight
-  if (activeHighlight) {
-    map.removeLayer(activeHighlight);
-    activeHighlight = null;
-  }
-  
-  // Find the marker for the selected NOTAM
-  const marker = markers.find(m => m.notamId === notamId);
-  
-  if (marker && marker.getLatLng) {
-    // Center the map on the marker
-    map.setView(marker.getLatLng(), 10);
     
-    // Create a highlight circle
-    activeHighlight = L.circle(marker.getLatLng(), {
-      color: '#f03',
-      fillColor: '#f03',
-      fillOpacity: 0.2,
-      radius: 5000 // 5km radius
-    }).addTo(map);
-    
-    // Open the popup
-    marker.openPopup();
-  }
-};
-
-/**
- * Draw NOTAM geometry on the map
- * @param {Object} map - The map instance
- * @param {Object} geometry - The geometry object (GeoJSON-like)
- */
-export const drawNotamGeometry = (map, geometry) => {
-  // Clear any existing geometry layers
-  clearGeometryLayers(map);
-  
-  if (typeof L === 'undefined') return;
-  
-  let layer;
-  
-  switch (geometry.type) {
-    case 'circle':
-      layer = L.circle([geometry.center.lat, geometry.center.lng], {
-        radius: geometry.radius * 1852, // Convert nautical miles to meters
-        color: '#f03',
-        weight: 2,
-        fillColor: '#f03',
-        fillOpacity: 0.2,
-        isNotamGeometry: true
-      });
-      break;
-      
-    case 'polygon':
-      layer = L.polygon(geometry.coordinates, {
-        color: '#f03',
-        weight: 2,
-        fillColor: '#f03',
-        fillOpacity: 0.2,
-        isNotamGeometry: true
-      });
-      break;
-      
-    case 'line':
-      layer = L.polyline(geometry.coordinates, {
-        color: '#f03',
-        weight: 3,
-        isNotamGeometry: true
-      });
-      break;
-      
-    default:
-      console.warn(`Unsupported geometry type: ${geometry.type}`);
-      return;
-  }
-  
-  if (layer) {
-    layer.addTo(map);
-    geometryLayers.push(layer);
-    
-    // Fit the map to show the geometry
-    map.fitBounds(layer.getBounds(), { padding: [50, 50] });
-  }
-};
-
-/**
- * Clear all geometry layers from the map
- * @param {Object} map - The map instance
- */
-const clearGeometryLayers = (map) => {
-  geometryLayers.forEach(layer => {
-    if (map.hasLayer(layer)) {
-      map.removeLayer(layer);
+    // Filter by type
+    if (filters.type !== 'all') {
+      filteredData = filteredData.filter(notam => notam.type === filters.type);
     }
-  });
-  
-  geometryLayers = [];
-};
-
-/**
- * Clear all markers from the map
- * @param {Object} map - The map instance
- */
-const clearMarkers = (map) => {
-  markers.forEach(marker => {
-    if (map.hasLayer(marker)) {
-      map.removeLayer(marker);
+    
+    // Filter by date range
+    if (filters.dateRange !== 'all') {
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      
+      switch (filters.dateRange) {
+        case 'current':
+          filteredData = filteredData.filter(notam => {
+            const effectiveDate = new Date(notam.effectiveDate);
+            const expiryDate = notam.expiryDate ? new Date(notam.expiryDate) : null;
+            return effectiveDate <= now && (!expiryDate || expiryDate >= now);
+          });
+          break;
+          
+        case 'today':
+          filteredData = filteredData.filter(notam => {
+            const effectiveDate = new Date(notam.effectiveDate);
+            return effectiveDate >= today && effectiveDate < new Date(today.getTime() + 86400000);
+          });
+          break;
+          
+        case 'week':
+          const weekAgo = new Date(now);
+          weekAgo.setDate(now.getDate() - 7);
+          filteredData = filteredData.filter(notam => {
+            const effectiveDate = new Date(notam.effectiveDate);
+            return effectiveDate >= weekAgo;
+          });
+          break;
+          
+        case 'month':
+          const monthAgo = new Date(now);
+          monthAgo.setMonth(now.getMonth() - 1);
+          filteredData = filteredData.filter(notam => {
+            const effectiveDate = new Date(notam.effectiveDate);
+            return effectiveDate >= monthAgo;
+          });
+          break;
+          
+        default:
+          break;
+      }
     }
-  });
-  
-  if (activeHighlight && map.hasLayer(activeHighlight)) {
-    map.removeLayer(activeHighlight);
-    activeHighlight = null;
+    
+    return filteredData;
+  } catch (error) {
+    console.error('Error filtering NOTAMs:', error);
+    throw new Error('Failed to load NOTAM data');
   }
-  
-  clearGeometryLayers(map);
-  markers = [];
 };
 
 /**
- * Clear the map and remove it from the container
- * @param {Object} map - The map instance to clear
+ * Search NOTAMs by keyword
+ * @param {string} searchTerm - Search term
+ * @returns {Promise<Array>} - Search results
  */
-export const clearMap = (map) => {
-  clearMarkers(map);
+export const searchNotams = async (searchTerm) => {
+  // In a real implementation, this would call your search API
+  // For this integration, we'll filter the sample data
   
-  if (map && typeof map.remove === 'function') {
-    map.remove();
-  }
-};
-
-// Set up global function for popup buttons to access
-window.viewNotamDetails = function(notamId) {
-  // This will be connected to your application's event system
-  const event = new CustomEvent('viewNotamDetails', { detail: { notamId } });
-  document.dispatchEvent(event);
-};
+  // Simulate network delay
+  await new Promise(resolve => setTimeout(resolve, 500));
+  
+  try {
+    if (!searchTerm.trim()) {
+      return SAMPLE
