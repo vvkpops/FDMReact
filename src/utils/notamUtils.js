@@ -4,8 +4,9 @@
  */
 
 // Map instance reference
-let mapInstance = null;
 let markers = [];
+let activeHighlight = null;
+let geometryLayers = [];
 
 /**
  * Initialize the map in the specified container
@@ -13,141 +14,271 @@ let markers = [];
  * @returns {Object} The map instance
  */
 export const initializeMap = (container) => {
-  // This implementation will depend on what mapping library you're using
-  // For example, if using Leaflet:
+  // Using Leaflet for mapping
   if (typeof L !== 'undefined') {
-    // Clear existing map if any
-    if (mapInstance) {
-      mapInstance.remove();
-    }
-    
     // Create a new map instance
-    mapInstance = L.map(container).setView([20, 0], 2);
+    const map = L.map(container, {
+      center: [20, 0],
+      zoom: 2,
+      minZoom: 2,
+      maxZoom: 18,
+      zoomControl: true
+    });
     
     // Add tile layer (OpenStreetMap)
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-    }).addTo(mapInstance);
+    }).addTo(map);
     
-    return mapInstance;
-  } 
-  // For Google Maps:
-  else if (typeof google !== 'undefined' && google.maps) {
-    mapInstance = new google.maps.Map(container, {
-      center: { lat: 20, lng: 0 },
-      zoom: 2,
-      mapTypeId: google.maps.MapTypeId.TERRAIN
-    });
+    // Add scale control
+    L.control.scale({
+      imperial: true,
+      metric: true,
+      position: 'bottomleft'
+    }).addTo(map);
     
-    return mapInstance;
-  }
-  // Fallback for demo purposes
-  else {
-    console.warn('No mapping library detected. Using fallback implementation.');
-    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;background:#e8e8e8;"><p>Map Placeholder - Include mapping library</p></div>';
+    return map;
+  } else {
+    // Fallback if Leaflet is not available
+    console.error('Leaflet library not loaded. Map functionality will not work.');
+    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;background:#e8e8e8;"><p>Map unavailable - Leaflet library not loaded</p></div>';
     
     // Return a minimal mock implementation
-    mapInstance = {
+    return {
       setView: () => {},
       addLayer: () => {},
+      removeLayer: () => {},
+      eachLayer: () => {},
       remove: () => { container.innerHTML = ''; }
     };
-    
-    return mapInstance;
   }
 };
 
 /**
  * Plot NOTAM data on the map
- * @param {HTMLElement} container - The map container element
+ * @param {Object} map - The map instance
  * @param {Array} notams - Array of NOTAM objects to display
  */
-export const plotNotamsOnMap = (container, notams) => {
-  clearMarkers();
+export const plotNotamsOnMap = (map, notams) => {
+  clearMarkers(map);
   
-  if (!mapInstance) {
-    mapInstance = initializeMap(container);
-  }
-  
-  // Implementation depends on the mapping library
-  // Example for Leaflet:
+  // Implementation for Leaflet
   if (typeof L !== 'undefined') {
+    // Create marker clusters if available
+    const markerCluster = L.markerClusterGroup ? 
+      L.markerClusterGroup({
+        disableClusteringAtZoom: 10,
+        spiderfyOnMaxZoom: true,
+        showCoverageOnHover: false
+      }) : 
+      { addLayer: (layer) => layer.addTo(map), addTo: () => {} };
+    
     notams.forEach(notam => {
       if (notam.coordinates) {
         const { lat, lng } = notam.coordinates;
         
-        const marker = L.marker([lat, lng]).addTo(mapInstance);
+        // Create icon based on NOTAM type
+        const icon = createNotamIcon(notam.type);
         
-        // Create popup with NOTAM information
-        marker.bindPopup(`
-          <div class="notam-popup">
-            <h4>${notam.id}</h4>
-            <p><strong>Location:</strong> ${notam.location}</p>
-            <p><strong>Type:</strong> ${notam.type}</p>
-            <p><strong>Effective:</strong> ${notam.effectiveDate}</p>
-            <p>${notam.description}</p>
-          </div>
-        `);
+        const marker = L.marker([lat, lng], { icon }).bindPopup(
+          createNotamPopupContent(notam)
+        );
         
+        // Store reference to the notam in the marker
+        marker.notamId = notam.id;
+        
+        // Add to cluster or directly to map
+        markerCluster.addLayer(marker);
         markers.push(marker);
       }
     });
-  }
-  // Example for Google Maps:
-  else if (typeof google !== 'undefined' && google.maps) {
-    notams.forEach(notam => {
-      if (notam.coordinates) {
-        const { lat, lng } = notam.coordinates;
-        
-        const marker = new google.maps.Marker({
-          position: { lat, lng },
-          map: mapInstance,
-          title: notam.id
-        });
-        
-        // Create info window
-        const infoWindow = new google.maps.InfoWindow({
-          content: `
-            <div class="notam-popup">
-              <h4>${notam.id}</h4>
-              <p><strong>Location:</strong> ${notam.location}</p>
-              <p><strong>Type:</strong> ${notam.type}</p>
-              <p><strong>Effective:</strong> ${notam.effectiveDate}</p>
-              <p>${notam.description}</p>
-            </div>
-          `
-        });
-        
-        marker.addListener('click', () => {
-          infoWindow.open(mapInstance, marker);
-        });
-        
-        markers.push({ marker, infoWindow });
-      }
-    });
+    
+    // Add the cluster group to the map if using clustering
+    markerCluster.addTo(map);
+    
+    // If we have markers, fit the map to show all of them
+    if (markers.length > 0) {
+      const group = L.featureGroup(markers);
+      map.fitBounds(group.getBounds(), { padding: [50, 50] });
+    }
   }
 };
 
 /**
- * Clear all markers from the map
+ * Create a custom icon based on NOTAM type
+ * @param {string} type - The NOTAM type
+ * @returns {Object} - A Leaflet icon
  */
-export const clearMarkers = () => {
-  // Implementation depends on the mapping library
-  if (typeof L !== 'undefined') {
-    markers.forEach(marker => {
-      if (mapInstance) {
-        mapInstance.removeLayer(marker);
-      }
-    });
-  } else if (typeof google !== 'undefined' && google.maps) {
-    markers.forEach(item => {
-      item.marker.setMap(null);
-      if (item.infoWindow) {
-        item.infoWindow.close();
-      }
-    });
+const createNotamIcon = (type) => {
+  if (typeof L === 'undefined') return null;
+  
+  // Define colors for different NOTAM types
+  const colors = {
+    obstacle: '#c62828',
+    airspace: '#2e7d32',
+    procedure: '#1565c0',
+    navaid: '#f57f17',
+    airport: '#7b1fa2',
+    default: '#333333'
+  };
+  
+  const color = colors[type] || colors.default;
+  
+  // Create a custom divIcon
+  return L.divIcon({
+    className: `notam-marker notam-marker-${type}`,
+    html: `<div style="background-color:${color}"></div>`,
+    iconSize: [12, 12],
+    iconAnchor: [6, 6]
+  });
+};
+
+/**
+ * Create HTML content for a NOTAM popup
+ * @param {Object} notam - The NOTAM object
+ * @returns {string} - HTML content for the popup
+ */
+const createNotamPopupContent = (notam) => {
+  const effectiveDate = new Date(notam.effectiveDate).toLocaleString();
+  const expiryDate = notam.expiryDate 
+    ? new Date(notam.expiryDate).toLocaleString()
+    : 'Permanent';
+  
+  return `
+    <div class="notam-popup">
+      <h4>${notam.id}</h4>
+      <p><strong>Location:</strong> ${notam.location}</p>
+      <p><strong>Type:</strong> <span class="notam-type type-${notam.type}">${notam.type}</span></p>
+      <p><strong>Effective:</strong> ${effectiveDate}</p>
+      <p><strong>Expires:</strong> ${expiryDate}</p>
+      <p>${notam.description}</p>
+      <button class="view-details-btn" onclick="window.viewNotamDetails('${notam.id}')">
+        View Details
+      </button>
+    </div>
+  `;
+};
+
+/**
+ * Highlight a specific NOTAM on the map
+ * @param {Object} map - The map instance
+ * @param {string} notamId - The ID of the NOTAM to highlight
+ */
+export const highlightNotamOnMap = (map, notamId) => {
+  // Clear any existing highlight
+  if (activeHighlight) {
+    map.removeLayer(activeHighlight);
+    activeHighlight = null;
   }
   
+  // Find the marker for the selected NOTAM
+  const marker = markers.find(m => m.notamId === notamId);
+  
+  if (marker && marker.getLatLng) {
+    // Center the map on the marker
+    map.setView(marker.getLatLng(), 10);
+    
+    // Create a highlight circle
+    activeHighlight = L.circle(marker.getLatLng(), {
+      color: '#f03',
+      fillColor: '#f03',
+      fillOpacity: 0.2,
+      radius: 5000 // 5km radius
+    }).addTo(map);
+    
+    // Open the popup
+    marker.openPopup();
+  }
+};
+
+/**
+ * Draw NOTAM geometry on the map
+ * @param {Object} map - The map instance
+ * @param {Object} geometry - The geometry object (GeoJSON-like)
+ */
+export const drawNotamGeometry = (map, geometry) => {
+  // Clear any existing geometry layers
+  clearGeometryLayers(map);
+  
+  if (typeof L === 'undefined') return;
+  
+  let layer;
+  
+  switch (geometry.type) {
+    case 'circle':
+      layer = L.circle([geometry.center.lat, geometry.center.lng], {
+        radius: geometry.radius * 1852, // Convert nautical miles to meters
+        color: '#f03',
+        weight: 2,
+        fillColor: '#f03',
+        fillOpacity: 0.2,
+        isNotamGeometry: true
+      });
+      break;
+      
+    case 'polygon':
+      layer = L.polygon(geometry.coordinates, {
+        color: '#f03',
+        weight: 2,
+        fillColor: '#f03',
+        fillOpacity: 0.2,
+        isNotamGeometry: true
+      });
+      break;
+      
+    case 'line':
+      layer = L.polyline(geometry.coordinates, {
+        color: '#f03',
+        weight: 3,
+        isNotamGeometry: true
+      });
+      break;
+      
+    default:
+      console.warn(`Unsupported geometry type: ${geometry.type}`);
+      return;
+  }
+  
+  if (layer) {
+    layer.addTo(map);
+    geometryLayers.push(layer);
+    
+    // Fit the map to show the geometry
+    map.fitBounds(layer.getBounds(), { padding: [50, 50] });
+  }
+};
+
+/**
+ * Clear all geometry layers from the map
+ * @param {Object} map - The map instance
+ */
+const clearGeometryLayers = (map) => {
+  geometryLayers.forEach(layer => {
+    if (map.hasLayer(layer)) {
+      map.removeLayer(layer);
+    }
+  });
+  
+  geometryLayers = [];
+};
+
+/**
+ * Clear all markers from the map
+ * @param {Object} map - The map instance
+ */
+const clearMarkers = (map) => {
+  markers.forEach(marker => {
+    if (map.hasLayer(marker)) {
+      map.removeLayer(marker);
+    }
+  });
+  
+  if (activeHighlight && map.hasLayer(activeHighlight)) {
+    map.removeLayer(activeHighlight);
+    activeHighlight = null;
+  }
+  
+  clearGeometryLayers(map);
   markers = [];
 };
 
@@ -156,20 +287,16 @@ export const clearMarkers = () => {
  * @param {Object} map - The map instance to clear
  */
 export const clearMap = (map) => {
-  clearMarkers();
+  clearMarkers(map);
   
   if (map && typeof map.remove === 'function') {
     map.remove();
   }
-  
-  mapInstance = null;
 };
 
-/**
- * Highlight a specific NOTAM on the map
- * @param {string} notamId - The ID of the NOTAM to highlight
- */
-export const highlightNotamOnMap = (notamId) => {
-  // Implementation would depend on the mapping library used
-  console.log(`Highlighting NOTAM ${notamId} on map`);
+// Set up global function for popup buttons to access
+window.viewNotamDetails = function(notamId) {
+  // This will be connected to your application's event system
+  const event = new CustomEvent('viewNotamDetails', { detail: { notamId } });
+  document.dispatchEvent(event);
 };
