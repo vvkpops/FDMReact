@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { fetchTAF, fetchMETAR, highlightTAFAllBelow } from '../utils/weatherUtils';
+import { parseVisibility, checkMinima } from '../utils/weatherUtils';
 
 const WeatherTile = ({ 
   icao, 
@@ -9,106 +9,151 @@ const WeatherTile = ({
   resetWeatherMinima, 
   removeWeatherICAO 
 }) => {
-  const [tafRaw, setTafRaw] = useState("");
-  const [metarRaw, setMetarRaw] = useState("");
-  const [tafHtml, setTafHtml] = useState("");
+  const [weatherData, setWeatherData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  const min = weatherMinima[icao] || globalWeatherMinima;
-  const usingDefault = !weatherMinima[icao];
+  // Get current minima (flight-specific or global)
+  const currentMinima = weatherMinima[icao] || globalWeatherMinima;
 
   useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      const [taf, metar] = await Promise.all([
-        fetchTAF(icao), 
-        fetchMETAR(icao)
-      ]);
-      
-      setTafRaw(taf);
-      setMetarRaw(metar);
-      
-      if (taf) {
-        const html = highlightTAFAllBelow(taf, min.ceiling, min.vis);
-        setTafHtml(html);
+    const fetchWeather = async () => {
+      try {
+        setLoading(true);
+        // Replace with your actual weather API call
+        const response = await fetch(`/api/weather/${icao}`);
+        const data = await response.json();
+        setWeatherData(data);
+        setError(null);
+      } catch (err) {
+        setError(`Failed to fetch weather for ${icao}`);
+        console.error(err);
+      } finally {
+        setLoading(false);
       }
-      
-      setLoading(false);
     };
-    
-    fetchData();
-    
-    // Refresh every 5 minutes
-    const intervalId = setInterval(fetchData, 300000);
-    
-    return () => clearInterval(intervalId);
-  }, [icao, min.ceiling, min.vis]);
 
-  const getBorderClass = () => {
-    if (loading) return "border-gray-700";
-    if (tafHtml.includes("text-red-400")) {
-      return "border-red-500";
-    }
-    return "border-green-500";
-  };
+    fetchWeather();
+    // Refresh every 5 minutes
+    const interval = setInterval(fetchWeather, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [icao]);
+
+  if (loading) {
+    return (
+      <div className="flight-tile">
+        <div className="text-center">Loading {icao}...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flight-tile border-red-500">
+        <button 
+          className="weather-remove-btn"
+          onClick={() => removeWeatherICAO(icao)}
+        >
+          ✕
+        </button>
+        <div className="text-center text-red-400">{error}</div>
+      </div>
+    );
+  }
+
+  // Check minima compliance
+  const minimaCheck = checkMinima(
+    {
+      ceiling: weatherData?.ceiling,
+      visibility: weatherData?.visibility
+    },
+    currentMinima
+  );
+
+  const tileClass = `flight-tile ${
+    !minimaCheck.overallMet ? 'border-red-500 bg-red-900/20' : 'border-green-500'
+  }`;
 
   return (
-    <div className={`flight-tile bg-gray-800 rounded-xl shadow-md p-4 ${getBorderClass()}`}>
+    <div className={tileClass}>
       <button 
-        onClick={() => removeWeatherICAO(icao)} 
-        type="button" 
-        className="weather-remove-btn" 
-        title="Remove ICAO"
+        className="weather-remove-btn"
+        onClick={() => removeWeatherICAO(icao)}
       >
-        <svg width="19" height="19" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 20 20">
-          <path d="M5.5 14.5l9-9m-9 0l9 9" strokeLinecap="round"/>
-          <rect x="3" y="3" width="14" height="14" rx="7" stroke="currentColor" strokeWidth="1.4" fill="none"/>
-        </svg>
+        ✕
       </button>
       
-      <div className="flight-title text-2xl font-bold text-center">{icao}</div>
+      <div className="flight-title text-center mb-2">{icao}</div>
       
-      <div className="flex gap-3 items-center mt-2 text-xs">
-        <label className={usingDefault ? 'minima-default' : ''}>
-          Ceil: 
-          <input 
-            type="number" 
-            value={min.ceiling}
-            className="bg-gray-700 p-1 rounded w-20 text-center"
-            onChange={(e) => setWeatherMinima(icao, 'ceiling', e.target.value)}
-          />
-        </label>
-        <label className={usingDefault ? 'minima-default' : ''}>
-          Vis: 
-          <input 
-            type="number" 
-            step="0.1" 
-            value={min.vis}
-            className="bg-gray-700 p-1 rounded w-20 text-center"
-            onChange={(e) => setWeatherMinima(icao, 'vis', e.target.value)}
-          />
-        </label>
-        {usingDefault ? 
-          <span className="minima-default">(default)</span> : 
-          <button 
-            className="minima-reset-btn" 
-            onClick={() => resetWeatherMinima(icao)}
-          >
-            reset
-          </button>
-        }
-      </div>
-      
-      {metarRaw && (
-        <div className="mt-2 text-xs">
-          <strong>METAR:</strong> {metarRaw}
+      {/* Current Conditions */}
+      <div className="mb-3">
+        <div className="text-sm font-semibold mb-1">Current Conditions:</div>
+        <div className="text-xs space-y-1">
+          <div className={`flex justify-between ${!minimaCheck.ceilingMet ? 'text-red-400' : 'text-green-400'}`}>
+            <span>Ceiling:</span>
+            <span>{weatherData?.ceiling || 'N/A'}</span>
+          </div>
+          <div className={`flex justify-between ${!minimaCheck.visibilityMet ? 'text-red-400' : 'text-green-400'}`}>
+            <span>Visibility:</span>
+            <span>{weatherData?.visibility || 'N/A'} SM</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Wind:</span>
+            <span>{weatherData?.wind || 'N/A'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Temp:</span>
+            <span>{weatherData?.temperature || 'N/A'}°C</span>
+          </div>
         </div>
-      )}
-      
-      {tafHtml && (
-        <div className="mt-2 text-xs taf-block">
-          <strong>TAF:</strong><br/>
-          <div dangerouslySetInnerHTML={{ __html: tafHtml }}></div>
+      </div>
+
+      {/* Minima Section */}
+      <div className="mb-2">
+        <div className="text-sm font-semibold mb-1">Minima:</div>
+        <div className="flex gap-2 text-xs">
+          <div className="flex-1">
+            <label className="block text-xs">Ceiling:</label>
+            <input
+              type="number"
+              value={currentMinima.ceiling}
+              onChange={(e) => setWeatherMinima(icao, 'ceiling', e.target.value)}
+              className="w-full bg-gray-700 p-1 rounded text-center text-xs"
+            />
+          </div>
+          <div className="flex-1">
+            <label className="block text-xs">Visibility:</label>
+            <input
+              type="number"
+              step="0.1"
+              value={currentMinima.vis}
+              onChange={(e) => setWeatherMinima(icao, 'vis', e.target.value)}
+              className="w-full bg-gray-700 p-1 rounded text-center text-xs"
+            />
+          </div>
+        </div>
+        
+        {weatherMinima[icao] && (
+          <button 
+            onClick={() => resetWeatherMinima(icao)}
+            className="minima-reset-btn"
+          >
+            Reset to Global
+          </button>
+        )}
+      </div>
+
+      {/* Status Indicator */}
+      <div className={`text-center text-sm font-bold ${
+        minimaCheck.overallMet ? 'text-green-400' : 'text-red-400'
+      }`}>
+        {minimaCheck.overallMet ? '✅ Above Minima' : '❌ Below Minima'}
+      </div>
+
+      {/* Debug info (optional) */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="text-xs text-gray-500 mt-1">
+          Parsed: C:{minimaCheck.parsedCeiling} V:{minimaCheck.parsedVisibility}
         </div>
       )}
     </div>
