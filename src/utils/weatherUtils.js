@@ -189,4 +189,63 @@ export function highlightTAFAllBelow(raw, minC, minV) {
     const ceilOk = p.ceiling >= minC;
     return `<div class="${!(visOk && ceilOk) ? "text-red-400 font-bold" : ""}">${line}</div>`;
   }).join("");
+
 }
+// Utility function to parse visibility fractions
+export const parseVisibility = (visibilityString) => {
+  if (!visibilityString || visibilityString === 'N/A') return null;
+  
+  // Remove any non-numeric/fraction characters and trim
+  const cleanVis = visibilityString.replace(/[^\d\/\s\.]/g, '').trim();
+  
+  // Handle decimal values (e.g., "2.5")
+  if (cleanVis.includes('.') && !cleanVis.includes('/')) {
+    return parseFloat(cleanVis);
+  }
+  
+  // Handle pure fractions (e.g., "1/4", "3/4")
+  if (cleanVis.includes('/') && !cleanVis.includes(' ')) {
+    const [numerator, denominator] = cleanVis.split('/').map(Number);
+    return numerator / denominator;
+  }
+  
+  // Handle mixed numbers (e.g., "1 1/4", "2 3/4")
+  if (cleanVis.includes(' ') && cleanVis.includes('/')) {
+    const parts = cleanVis.split(' ');
+    const wholeNumber = parseInt(parts[0]);
+    const [numerator, denominator] = parts[1].split('/').map(Number);
+    return wholeNumber + (numerator / denominator);
+  }
+  
+  // Handle whole numbers
+  const numValue = parseFloat(cleanVis);
+  return isNaN(numValue) ? null : numValue;
+};
+
+// Function to check if conditions meet minima
+export const checkMinima = (currentConditions, minima) => {
+  const { ceiling, visibility } = currentConditions;
+  const { ceiling: minCeiling, vis: minVis } = minima;
+  
+  // Parse ceiling (remove 'BKN', 'OVC', etc. and get numeric value)
+  const parsedCeiling = ceiling && ceiling !== 'N/A' 
+    ? parseInt(ceiling.replace(/[^\d]/g, '')) 
+    : null;
+  
+  // Parse visibility using the utility function
+  const parsedVisibility = parseVisibility(visibility);
+  
+  // Check ceiling minima
+  const ceilingMet = parsedCeiling === null || parsedCeiling >= minCeiling;
+  
+  // Check visibility minima
+  const visibilityMet = parsedVisibility === null || parsedVisibility >= minVis;
+  
+  return {
+    ceilingMet,
+    visibilityMet,
+    overallMet: ceilingMet && visibilityMet,
+    parsedCeiling,
+    parsedVisibility
+  };
+};
