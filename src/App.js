@@ -275,7 +275,7 @@ function App() {
           Weather Monitor
         </button>
         <button 
-          onClick={() => window.open('https://vvkpops-notamoriginal.up.railway.app/', '_blank')} 
+          onClick={() => window.open('https://notamreact-production.up.railway.app/', '_blank')} 
           className="bg-cyan-700 px-4 py-2 rounded text-white hover:bg-cyan-900"
         >
           NOTAM Dashboard
@@ -463,5 +463,6 @@ function App() {
     </div>
   );
 }
+
 
 export default App;
