@@ -144,7 +144,7 @@ const NotamDashboard = () => {
       // Update loading state
       setLoadingIcaos(prev => new Set([...prev, icao]));
       
-      const url = `https://vvkpops-notamoriginal.up.railway.app/api/notams?icao=${icao}`;
+      const url = `https://notamreact-production.up.railway.app/api/notams?icao=${icao}`;
       const response = await fetch(url);
       
       if (!response.ok) {
